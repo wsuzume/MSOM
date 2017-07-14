@@ -38,7 +38,8 @@ for v in vs:
 
 msom = som.SOM(vs)
 #msom.arranged()
-msom.fission()
+#msom.fission()
+msom.execute_with_animation('result.txt')
 
 #-----------
 #while msom.update_som_assign():
@@ -52,6 +53,6 @@ msom.fission()
 #-----------
 
 #msom.show()
-msom.animation()
+#msom.animation()
 #msom.dump()
 #msom.write('result.txt')

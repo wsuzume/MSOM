@@ -36,6 +36,8 @@ class Cell():
         self.n = 0
         self.d = 0
 
+        self.critical_diameter = 50
+
     def distance(self, x, y):
         return np.linalg.norm(x - y)
 
@@ -45,6 +47,11 @@ class Cell():
         return 0
     
     def absorbe(self, y):
+        #print(self.xs, y)
+        if y in self.xs:
+            #print('full')
+            return
+        #print('eat')
         for x in self.xs:
             self.d += self.distance(x.vector, y.vector)
             self.d += self.distance(y.vector, x.vector)
@@ -54,12 +61,12 @@ class Cell():
         return
 
     def is_dying(self):
-        if self.n == 0:
+        if self.n < 3:
             return True
         return False
 
-    def is_critical(self, e=100):
-        if self.diameter() > e:
+    def is_critical(self):
+        if self.diameter() > self.critical_diameter:
             return True
         return False
 
@@ -86,6 +93,13 @@ class Cell():
         b = Cell(id_b, self.p + np.random.normal(0, 0.4, 2),
                        self.v + np.random.normal(0, 0.1, 2),
                        self.x + np.random.normal(0, 0.1, len(self.x)))
+        for x in self.xs:
+            d_a = self.distance(a.x, x.vector)
+            d_b = self.distance(b.x, x.vector)
+            if d_a < d_b:
+                a.absorbe(x)
+            else:
+                b.absorbe(x)
         return (a, b)
 
     def fusion(self):
@@ -177,6 +191,8 @@ class SOM():
         return v * self.cohesion_const
 
     def cohesion(self, cell):
+        if self.N <= 1:
+            return np.zeros(len(cell.p))
         p = -1 * cell.p
         for c in self.C:
             p = p + c.p
@@ -189,6 +205,8 @@ class SOM():
         return v * self.alignment_const
 
     def alignment(self, cell):
+        if self.N <= 1:
+            return np.zeros(len(cell.p))
         v = -1 * cell.v
         for c in self.C:
             v = v + c.v
@@ -202,6 +220,8 @@ class SOM():
         return v * self.separation_const
 
     def separation(self, cell):
+        if self.N <= 1:
+            return np.zeros(len(cell.p))
         p = -1 * self.d(cell.p, cell.p)
         for c in self.C:
             p = p + self.d(c.p, cell.p)
@@ -221,10 +241,11 @@ class SOM():
 
     def center_of_gravity(self):
         p = np.zeros(len(self.C[0].p))
+        if self.N == 0:
+            return p
         for c in self.C:
             p = p + c.p
         return p / self.N
-
 
     def update_boid(self, dt=1):
         new_v = []
@@ -232,9 +253,9 @@ class SOM():
             v1 = self.f_cohesion(self.cohesion(c), self.t_boid)
             v2 = self.f_alignment(self.alignment(c), self.t_boid)
             v3 = self.f_separation(self.separation(c), self.t_boid)
-            v5 = self.f_heat_disturbance(self.heat_disturbance(c), self.t_boid)
-            new_v.append(c.v + v1 + v2 + v3 + v5)
-            print(v1, v2, v3)
+            #v5 = self.f_heat_disturbance(self.heat_disturbance(c), self.t_boid)
+            new_v.append(c.v + v1 + v2 + v3)
+            #print(v1, v2, v3)
                              #+ self.f_organization(self.organization(c), self.t)
             #                 )
             #new_v.append(c.v + self.f_cohesion(self.cohesion(c), self.t_boid)
@@ -335,6 +356,11 @@ class SOM():
         c = self.get_matching_cell(x.vector)
         c.absorbe(x)
 
+    def reload(self):
+        for c in self.C:
+            self.vs.extend(c.xs)
+        random.shuffle(self.vs)
+
     def reassign_all(self):
         v_buf = []
         for c in self.C:
@@ -350,23 +376,30 @@ class SOM():
 
     def metabolism(self):
         new_C = []
+        for c in self.C:
+            if c.is_critical():
+                a, b = c.fission()
+                new_C.append(a)
+                new_C.append(b)
+                self.N += 1
+            else:
+                new_C.append(c)
+        self.C = new_C
+        return
+
+    def apoptosis(self):
+        new_C = []
         corpse = []
         for c in self.C:
             if c.is_dying():
                 corpse = c.kill() + corpse
                 self.N -= 1
             else:
-                if c.is_critical():
-                    a, b = c.fission()
-                    new_C.append(a)
-                    new_C.append(b)
-                    self.N += 1
-                else:
-                    new_C.append(c)
+                new_C.append(c)
         self.C = new_C
         self.vs = corpse + self.vs
         return
-    
+
     # Functions for integration
     def update(self, time_ratio=5):
         if self.vs == []:
@@ -404,20 +437,47 @@ class SOM():
         pl.show()
         return
 
-    def update_with_animation(self, time_ratio=5):
+    def plot_cells(self, t):
+        xs = []
+        ys = []
+        for c in self.C:
+            xs.append(c.p[0])
+            ys.append(c.p[1])
+        #pl.title('time={0}'.format(t))
+        return pl.scatter(xs, ys, c='b')
+
+    def execute_with_animation(self, path, time_ratio=20):
         if self.vs == []:
             return
-        for i in range(time_ratio):
-            if self.vs == []:
-                break
-            self.update_som()
-        while self.has_critical_cell():
-            self.metabolism()
-            self.reassign_all()
-        self.update_boid()
+
+        fig = pl.figure()
+        ims = []
+        self.ovum()
+        ims.append([self.plot_cells('init')])
+        for t in range(500):
+            print('time=', t)
+            for c in self.C:
+                print('Cell:', c.cell_id, 'pos=', c.p, 'size=', len(c.xs), 'diameter=', c.diameter())
+            for i in range(time_ratio):
+                if self.vs == []:
+                    self.reload()
+                self.update_som_assign()
+            if self.has_critical_cell():
+                print('metabolism occured')
+                self.metabolism()
+                self.reassign_all()
+                self.apoptosis()
+            self.update_boid()
+            ims.append([self.plot_cells(t)])
+        ani = animation.ArtistAnimation(fig, ims, interval=100)
+        ani.save("output.gif", writer="imagemagick")
+        self.reassign_all()
+        self.apoptosis()
+        self.write(path)
 
     def write(self, path):
         with open(path, 'w') as f:
+            f.write('Cell num: {0}\n'.format(len(self.C)))
             for c in self.C:
                 f.write('Cell: {0}\n'.format(c.cell_id))
                 for x in c.xs:
